@@ -1,0 +1,8 @@
+/node_modules
+/orig
+vault-server.hcl
+vault-kms-policy.json
+/.env
+*~
+/.serverless/
+/.idea/

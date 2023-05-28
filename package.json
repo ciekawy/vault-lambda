@@ -1,0 +1,22 @@
+{
+  "name": "vault-aws",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "sls deploy"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "aws-sdk": "^2.1386.0",
+    "serverless": "^3.31.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-export-env": "github:arabold/serverless-export-env",
+    "serverless-plugin-existing-s3": "^2.4.0",
+    "serverless-scriptable-plugin": "^1.3.0"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.0"
+  }
+}

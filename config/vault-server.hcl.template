@@ -1,0 +1,19 @@
+storage "s3" {
+  bucket = "${S3_BUCKET_NAME}"
+  region = "${VAULT_REGION}"
+}
+
+seal "awskms" {
+  region = "${VAULT_REGION}"
+  kms_key_id = "alias/${VAULT_KMS_KEY_ALIAS}"
+}
+
+listener "tcp" {
+     address     = "0.0.0.0:8200"
+     tls_disable = 1
+}
+
+disable_mlock = true
+api_addr      = "http://0.0.0.0:8200"
+log_level     = "info"
+ui = true

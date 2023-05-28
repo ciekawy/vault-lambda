@@ -1,0 +1,153 @@
+service: vault-lambda
+
+plugins:
+  - serverless-dotenv-plugin
+
+useDotenv: true
+
+custom:
+  dotenv:
+    path: ./.env
+  ecrImageUri: "378170477385.dkr.ecr.eu-central-1.amazonaws.com/vault-reweb-aws:latest"
+  scripts:
+    before:package:createDeploymentArtifacts: |
+      bash build.sh
+
+provider:
+  name: aws
+  runtime: provided
+  stage: common
+  region: ${env:VAULT_REGION}
+  httpApi:
+    authorizers:
+      vaultAccessAuthorizer:
+        type: request
+        functionName: vaultAccessAuthorizerFn
+#        identitySource: $request.header.Authorization
+        authorizationToken: allow
+#        audience:
+#          - foo
+  environment:
+#    REPOSITORY_URL: !Sub '${VaultECRRepository}'
+    VAULT_REGION: ${env:VAULT_REGION}
+    KMS_KEY_ARN: { "Fn::GetAtt": ["VaultKey", "Arn"] } # Capture the ARN dynamically
+  lambdaHashingVersion: 20201221
+  iamRoleStatements:
+    - Effect: 'Allow'
+      Action:
+        - 'kms:Encrypt'
+        - 'kms:Decrypt'
+        - 'kms:DescribeKey'
+        - 'kms:GenerateDataKey'
+        - 's3:*' # Added permissions for S3
+      Resource: "*"
+  ecr:
+    images:
+      vault-reweb-aws:
+        uri: 378170477385.dkr.ecr.us-east-1.amazonaws.com/vault-reweb-aws:latest
+
+functions:
+  # this authorizer is just to prevent random requests from hitting the lambda
+  vaultAccessAuthorizerFn:
+    environment:
+      OBSCURITY_TOKEN: ${env:OBSCURITY_TOKEN}
+      COOKIE_AUTH: true
+    runtime: nodejs16.x
+    handler: authorizer.handler
+    role: LambdaAuthorizerRole
+  vault:
+    # only operator init for fresh s3 bucket may use more than few seconds
+    timeout: 29
+    memorySize: 360
+    image:
+      name: vault-reweb-aws
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: any
+          authorizer: vaultAccessAuthorizer
+
+
+resources:
+  Resources:
+    VaultKey:
+      Type: AWS::KMS::Key
+      Properties:
+        Description: KMS Key for Vault Auto Unseal
+        KeyPolicy:
+          Version: '2012-10-17'
+          Id: vault-key
+          Statement:
+            - Sid: Enable IAM User Permissions
+              Effect: Allow
+              Principal:
+                AWS: "*"
+              Action: kms:*
+              Resource: '*'
+    VaultKeyAlias:
+      Type: AWS::KMS::Alias
+      Properties:
+        AliasName: alias/${env:VAULT_KMS_KEY_ALIAS}
+        TargetKeyId: !Ref VaultKey
+    VaultS3Bucket: # Define the S3 bucket resource
+      Type: 'AWS::S3::Bucket'
+      Properties:
+        BucketName: ${env:S3_BUCKET_NAME}
+    VaultIAMRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Policies:
+          - PolicyName: VaultIAMRolePolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - 'kms:Encrypt'
+                    - 'kms:Decrypt'
+                    - 'kms:DescribeKey'
+                    - 'kms:GenerateDataKey'
+                  Resource: !GetAtt VaultKey.Arn
+                - Effect: Allow
+                  Action:
+                    - 's3:*'
+                  Resource:
+                    - !Join [ "", [ "arn:aws:s3:::", { "Ref": "VaultS3Bucket" } ] ]
+                    - !Join [ "", [ "arn:aws:s3:::", { "Ref": "VaultS3Bucket" }, "/*" ] ]
+    LambdaAuthorizerRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: LambdaAuthorizerRole
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Policies:
+          - PolicyName: LambdaAuthorizerPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                  Resource: "*"
+                - Effect: Allow
+                  Action:
+                    - sts:GetSessionToken
+                  Resource: "*"
